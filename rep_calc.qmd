@@ -1,0 +1,244 @@
+---
+title: "Rep Calculator"
+format: html
+echo: false
+---
+
+```{ojs}
+// Create a dataframe with load and reps columns
+data = [
+  {load: 100, reps: 1},
+  {load: 95, reps: 3.28},
+  {load: 90, reps: 4.94},
+  {load: 85, reps: 7.15},
+  {load: 80, reps: 9.75},
+  {load: 75, reps: 12.37},
+  {load: 70, reps: 14.80},
+  {load: 65, reps: 17.11},
+  {load: 60, reps: 19.53},
+  {load: 55, reps: 22.43},
+  {load: 50, reps: 25.99},
+  {load: 45, reps: 30.37},
+  {load: 40, reps: 35.75},
+  {load: 35, reps: 42.37},
+  {load: 30, reps: 50.50}
+]
+```
+
+```{ojs}
+
+viewof currentReps = Inputs.number([1, 50], {step: 1, value: 12})
+viewof currentWeight = Inputs.number({step: 0.5, value: 20})
+viewof currentRpe = Inputs.number([0.5,10], {step: 0.5, value: 9})
+
+mutable storedDesiredReps = 15
+mutable storedDesiredWeight = 15
+
+viewof inputSelect = Inputs.select(['reps', 'weight'], {value: 'Reps'})
+
+viewof desiredValue = inputSelect == 'reps' 
+  ? Inputs.number([1, 50], {step: 1, value: mutable storedDesiredReps})
+  : Inputs.number({step: 0.5, value: mutable storedDesiredWeight})
+
+viewof desiredRpe = Inputs.number([0.5, 10], {step: 0.5, value: 9})
+```
+
+```{ojs}
+html`<div style="display: grid; grid-template-columns: 4rem 6rem 6rem 5rem; gap: 0.75rem 1rem; align-items: end; margin-bottom: 1rem;">
+  <span style="font-weight: bold;">Current</span>
+  <div style="display: flex; align-items: end; gap: 0.25rem;">
+    ${viewof currentReps}
+    <span>reps</span>
+  </div>
+  <div style="display: flex; align-items: end; gap: 0.25rem;">
+    ${viewof currentWeight}
+    <span>lbs</span>
+  </div>
+  <div style="display: flex; align-items: end; gap: 0.25rem;">
+    ${viewof currentRpe}
+    <span>RPE</span>
+  </div>
+  
+  <span style="font-weight: bold;">Desired</span>
+  <div>${viewof inputSelect}</div>
+  <div style="display: flex; align-items: end; gap: 0.25rem;">
+    ${viewof desiredValue}
+    <span>${inputSelect == 'reps' ? 'reps' : 'lbs'}</span>
+  </div>
+  <div style="display: flex; align-items: end; gap: 0.25rem;">
+    ${viewof desiredRpe}
+    <span>RPE</span>
+  </div>
+</div>`
+```
+
+```{ojs}
+//| output: false
+{
+  if (inputSelect == 'reps') {
+    mutable storedDesiredReps = desiredValue;
+  } else {
+    mutable storedDesiredWeight = desiredValue;
+  }
+}
+```
+
+```{ojs}
+mutable storedCustomWeight = 0
+
+mutable baseWeightList = [
+  {name: 'None', value: 0},
+  {name: 'Smith Machine', value: 25},
+  {name: '45° Leg Press', value: 167},
+  {name: 'Custom', value: 0}
+]
+
+viewof baseWeightSelect = Inputs.select(baseWeightList, {
+    format: (b) => b.name,
+    value: baseWeightList.find((b) => b.name === 'None')
+  }
+)
+
+viewof baseWeight = Inputs.number([0, 999.9], {
+  value: baseWeightSelect.value,
+  disabled: !(baseWeightSelect.name === 'Custom')
+})
+```
+
+```{ojs}
+html`<div style="display: grid; grid-template-columns: 4rem 13rem 5rem; gap: 0.75rem 1rem; align-items: end; margin-bottom: 1rem;">
+  <span style="font-weight: bold;">Base Wt</span>
+  <div style="display: flex; align-items: end; gap: 0.25rem;">
+    ${viewof baseWeightSelect}
+  </div>
+  <div style="display: flex; align-items: end; gap: 0.25rem;">
+    ${viewof baseWeight}
+    <span>lbs</span>
+  </div>
+</div>`
+```
+
+```{ojs}
+//| output: false
+{
+  if (baseWeightSelect.name == 'Custom') {
+    const customIndex = mutable baseWeightList.findIndex(b => b.name === 'Custom');
+    if (customIndex !== -1) {
+      mutable baseWeightList[customIndex].value = baseWeight;
+    }
+  }
+}
+```
+
+```{ojs}
+mutable weightLists = [
+  {name: 'Plates', value: [5, 10, 20, 50, 90]},
+  {name: 'Dumbbells (x1)', value: [3, 5, 8, 10, 12, 15, 17.5, 20, 22.5, 25, 27.5, 30, 32.5, 35, 37.5, 40, 45, 50, 55, 60, 65, 70]},
+  {name: 'Dumbbells (x2)', value: [6, 10, 16, 20, 24, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 90, 100, 110, 120, 130, 140]},
+  {name: 'Cable (Purple Machine)', value: [5, 7.5, 10, 12.5, 15, 17.5, 20, 22.5, 25, 27.5, 30, 32.5, 35, 37.5, 40, 42.5, 45, 47.5, 50, 52.5, 55, 57.5, 60]}
+]
+```
+
+```{ojs}
+// Monotone cubic spline interpolation (Fritsch-Carlson method)
+function createMonotoneSpline(x, y) {
+  const n = x.length;
+  
+  // Calculate slopes
+  const dys = [];
+  const dxs = [];
+  const ms = [];
+  
+  for (let i = 0; i < n - 1; i++) {
+    const dx = x[i + 1] - x[i];
+    const dy = y[i + 1] - y[i];
+    dxs.push(dx);
+    dys.push(dy);
+    ms.push(dy / dx);
+  }
+  
+  // Get tangents (derivatives at each point)
+  const c = [ms[0]];
+  for (let i = 1; i < n - 1; i++) {
+    const m0 = ms[i - 1];
+    const m1 = ms[i];
+    if (m0 * m1 <= 0) {
+      c.push(0);
+    } else {
+      const dx0 = dxs[i - 1];
+      const dx1 = dxs[i];
+      const common = dx0 + dx1;
+      c.push(3 * common / ((common + dx1) / m0 + (common + dx0) / m1));
+    }
+  }
+  c.push(ms[n - 2]);
+  
+  // Return interpolation function
+  return function(input) {
+    // Handle out of bounds
+    if (input <= x[0]) return y[0];
+    if (input >= x[n - 1]) return y[n - 1];
+    
+    // Find the right interval
+    let i = 0;
+    while (input > x[i + 1]) i++;
+    
+    const t = (input - x[i]) / dxs[i];
+    const t2 = t * t;
+    const t3 = t2 * t;
+    
+    const h00 = 2 * t3 - 3 * t2 + 1;
+    const h10 = t3 - 2 * t2 + t;
+    const h01 = -2 * t3 + 3 * t2;
+    const h11 = t3 - t2;
+    
+    return h00 * y[i] + h10 * dxs[i] * c[i] + h01 * y[i + 1] + h11 * dxs[i] * c[i + 1];
+  };
+}
+```
+
+```{ojs}
+// Create interpolation functions
+loadToReps = createMonotoneSpline(
+  data.map(d => d.load).reverse(),  // Reverse because load decreases as reps increase
+  data.map(d => d.reps).reverse()
+)
+
+repsToLoad = createMonotoneSpline(
+  data.map(d => d.reps),
+  data.map(d => d.load)
+)
+```
+
+```{ojs}
+currentWeightTotal = currentWeight + baseWeight
+currentLoad = repsToLoad(currentReps)
+oneRmTotal = currentWeightTotal / (currentLoad / 100.0)
+oneRM = oneRmTotal - baseWeight
+
+desiredWeight = inputSelect == 'reps' 
+  ? oneRmTotal * repsToLoad(desiredValue) / 100.0 - baseWeight
+  : desiredValue
+
+desiredReps = inputSelect == 'reps'
+  ? desiredValue
+  : loadToReps(100.0 * (desiredValue + baseWeight) / oneRmTotal)
+```
+
+```{ojs}
+html`<div style="display: grid; grid-template-columns: 4rem 6rem 6rem 5rem; gap: 0.75rem 1rem; align-items: end; margin-bottom: 1rem;">
+  <span style="font-weight: bold;">Predicted</span>
+  <div style="display: flex; align-items: end; gap: 0.25rem;">
+    <span style="padding-left: 3.6px; ${inputSelect == 'weight' ? 'font-weight: bold' : ''}">${desiredReps.toFixed(1)}</span>
+    <span style="text-align: left; flex: 1; ${inputSelect == 'weight' ? 'font-weight: bold' : ''}">reps</span>
+  </div>
+  <div style="display: flex; align-items: end; gap: 0.25rem;">
+    <span style="padding-left: 3.6px; ${inputSelect == 'reps' ? 'font-weight: bold' : ''}">${desiredWeight.toFixed(1)}</span>
+    <span style="text-align: left; flex: 1; ${inputSelect == 'reps' ? 'font-weight: bold' : ''}">lbs</span>
+  </div>
+  <div style="display: flex; align-items: end; gap: 0.25rem;">
+    <span style="padding-left: 3.6px">${desiredRpe}</span>
+    <span style="text-align: left; flex: 1">RPE</span>
+  </div>
+</div>`
+```
