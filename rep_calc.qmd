@@ -1,8 +1,6 @@
 ---
 title: "Rep Calculator"
-format: 
-  html:
-    output-file: index.html
+format: html
 echo: false
 ---
 
